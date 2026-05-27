@@ -1,14 +1,15 @@
 package com.jagrosh.discordipc;
 
-import com.jagrosh.discordipc.entities.*;
-import com.jagrosh.discordipc.entities.Packet.OpCode;
+import com.jagrosh.discordipc.entities.Callback;
+import com.jagrosh.discordipc.entities.DiscordBuild;
+import com.jagrosh.discordipc.entities.Packet;
+import com.jagrosh.discordipc.entities.RichPresence;
+import com.jagrosh.discordipc.entities.User;
 import com.jagrosh.discordipc.entities.pipe.Pipe;
 import com.jagrosh.discordipc.entities.pipe.PipeStatus;
 import com.jagrosh.discordipc.exceptions.NoDiscordClientException;
-
 import org.json.JSONException;
 import org.json.JSONObject;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,26 +17,17 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.HashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class IPCClient implements Closeable
 {
-    private static final Logger LOGGER =
-            LoggerFactory.getLogger(IPCClient.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(IPCClient.class);
 
     private final long clientId;
-
-    private final HashMap<String, Callback> callbacks =
-            new HashMap<>();
+    private final HashMap<String, Callback> callbacks = new HashMap<>();
 
     private volatile Pipe pipe;
-
     private IPCListener listener = null;
-
     private Thread readThread = null;
-
-    // FIX: proper lifecycle control
-    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public IPCClient(long clientId)
     {
@@ -46,36 +38,23 @@ public final class IPCClient implements Closeable
     {
         this.listener = listener;
 
-        if(pipe != null)
-        {
+        if (pipe != null)
             pipe.setListener(listener);
-        }
     }
 
-    public synchronized void connect(DiscordBuild... preferredOrder)
-            throws NoDiscordClientException
+    public void connect(DiscordBuild... preferredOrder) throws NoDiscordClientException
     {
         checkConnected(false);
 
-        closed.set(false);
-
         callbacks.clear();
-
         pipe = null;
 
-        pipe = Pipe.openPipe(
-                this,
-                clientId,
-                callbacks,
-                preferredOrder
-        );
+        pipe = Pipe.openPipe(this, clientId, callbacks, preferredOrder);
 
-        LOGGER.debug("IPCClient connected");
+        LOGGER.info("IPCClient connected");
 
         if(listener != null)
-        {
             listener.onReady(this);
-        }
 
         startReading();
     }
@@ -85,49 +64,21 @@ public final class IPCClient implements Closeable
         sendRichPresence(presence, null);
     }
 
-    public void sendRichPresence(
-            RichPresence presence,
-            Callback callback
-    ) {
+    public void sendRichPresence(RichPresence presence, Callback callback)
+    {
         checkConnected(true);
 
-        if(closed.get())
-            return;
+        LOGGER.debug("Sending RichPresence");
 
-        try
-        {
-            LOGGER.debug(
-                    "Sending RichPresence: {}",
-                    presence == null
-                            ? null
-                            : presence.toJson().toString()
-            );
-
-            pipe.send(
-                    OpCode.FRAME,
-                    new JSONObject()
-                            .put("cmd", "SET_ACTIVITY")
-                            .put(
-                                    "args",
-                                    new JSONObject()
-                                            .put("pid", getPID())
-                                            .put(
-                                                    "activity",
-                                                    presence == null
-                                                            ? null
-                                                            : presence.toJson()
-                                            )
-                            ),
-                    callback
-            );
-        }
-        catch(Exception e)
-        {
-            LOGGER.error(
-                    "Failed to send RichPresence",
-                    e
-            );
-        }
+        pipe.send(
+                Packet.OpCode.FRAME,
+                new JSONObject()
+                        .put("cmd", "SET_ACTIVITY")
+                        .put("args", new JSONObject()
+                                .put("pid", getPID())
+                                .put("activity", presence == null ? null : presence.toJson())),
+                callback
+        );
     }
 
     public void subscribe(Event sub)
@@ -139,20 +90,11 @@ public final class IPCClient implements Closeable
     {
         checkConnected(true);
 
-        if(closed.get())
-            return;
-
         if(!sub.isSubscribable())
-        {
-            throw new IllegalStateException(
-                    "Cannot subscribe to " + sub + " event!"
-            );
-        }
-
-        LOGGER.debug("Subscribing to event: {}", sub.name());
+            throw new IllegalStateException("Cannot subscribe to " + sub + " event!");
 
         pipe.send(
-                OpCode.FRAME,
+                Packet.OpCode.FRAME,
                 new JSONObject()
                         .put("cmd", "SUBSCRIBE")
                         .put("evt", sub.name()),
@@ -162,64 +104,44 @@ public final class IPCClient implements Closeable
 
     public PipeStatus getStatus()
     {
-        if(pipe == null)
+        if (pipe == null)
             return PipeStatus.UNINITIALIZED;
 
         return pipe.getStatus();
     }
 
     @Override
-    public synchronized void close()
+    public void close()
     {
-        if(closed.compareAndSet(false, true))
+        LOGGER.info("Closing IPCClient");
+
+        try
         {
-            LOGGER.info("Closing IPCClient");
-
-            try
+            if (pipe != null)
             {
-                callbacks.clear();
-
-                if(readThread != null)
-                {
-                    try
-                    {
-                        readThread.interrupt();
-                    }
-                    catch(Exception ignored) {}
-
-                    readThread = null;
-                }
-
-                if(pipe != null)
-                {
-                    try
-                    {
-                        pipe.close();
-                    }
-                    catch(IOException e)
-                    {
-                        LOGGER.debug(
-                                "Failed to close pipe",
-                                e
-                        );
-                    }
-
-                    pipe = null;
-                }
-            }
-            catch(Exception e)
-            {
-                LOGGER.error(
-                        "Exception while closing IPCClient",
-                        e
-                );
+                pipe.setStatus(PipeStatus.CLOSED);
+                pipe.close();
             }
         }
+        catch (Exception e)
+        {
+            LOGGER.error("Failed to close IPC pipe", e);
+        }
+
+        pipe = null;
+
+        if (readThread != null)
+        {
+            readThread.interrupt();
+            readThread = null;
+        }
+
+        callbacks.clear();
     }
 
     public DiscordBuild getDiscordBuild()
     {
-        if(pipe == null)
+        if (pipe == null)
             return null;
 
         return pipe.getDiscordBuild();
@@ -230,11 +152,9 @@ public final class IPCClient implements Closeable
         NULL(false),
         READY(false),
         ERROR(false),
-
         ACTIVITY_JOIN(true),
         ACTIVITY_SPECTATE(true),
         ACTIVITY_JOIN_REQUEST(true),
-
         UNKNOWN(false);
 
         private final boolean subscribable;
@@ -256,11 +176,8 @@ public final class IPCClient implements Closeable
 
             for(Event s : Event.values())
             {
-                if(s != UNKNOWN
-                        && s.name().equalsIgnoreCase(str))
-                {
+                if(s != UNKNOWN && s.name().equalsIgnoreCase(str))
                     return s;
-                }
             }
 
             return UNKNOWN;
@@ -269,27 +186,15 @@ public final class IPCClient implements Closeable
 
     private void checkConnected(boolean connected)
     {
-        if(connected
-                && getStatus() != PipeStatus.CONNECTED)
-        {
+        if(connected && getStatus() != PipeStatus.CONNECTED)
             throw new IllegalStateException(
-                    String.format(
-                            "IPCClient (ID: %d) is not connected!",
-                            clientId
-                    )
+                    String.format("IPCClient (ID: %d) is not connected!", clientId)
             );
-        }
 
-        if(!connected
-                && getStatus() == PipeStatus.CONNECTED)
-        {
+        if(!connected && getStatus() == PipeStatus.CONNECTED)
             throw new IllegalStateException(
-                    String.format(
-                            "IPCClient (ID: %d) is already connected!",
-                            clientId
-                    )
+                    String.format("IPCClient (ID: %d) is already connected!", clientId)
             );
-        }
     }
 
     private void startReading()
@@ -298,134 +203,103 @@ public final class IPCClient implements Closeable
 
             try
             {
-                Packet p;
+                while (pipe != null && pipe.getStatus() == PipeStatus.CONNECTED)
+                {
+                    Packet p;
 
-                while(
-                        !Thread.currentThread().isInterrupted()
-                                && !closed.get()
-                                && pipe != null
-                                && pipe.getStatus() == PipeStatus.CONNECTED
-                                && (p = pipe.read()).getOp() != OpCode.CLOSE
-                ) {
+                    try
+                    {
+                        p = pipe.read();
+                    }
+                    catch (IOException ex)
+                    {
+                        break;
+                    }
+
+                    if (p == null)
+                        continue;
+
+                    if (p.getOp() == Packet.OpCode.CLOSE)
+                        break;
+
                     JSONObject json = p.getJson();
 
-                    Event event = Event.of(
-                            json.optString("evt", null)
-                    );
+                    if (json == null)
+                        continue;
 
-                    String nonce =
-                            json.optString("nonce", null);
+                    Event event = Event.of(json.optString("evt", null));
+                    String nonce = json.optString("nonce", null);
 
                     switch(event)
                     {
                         case NULL:
-
-                            if(nonce != null
-                                    && callbacks.containsKey(nonce))
-                            {
-                                callbacks.remove(nonce)
-                                        .succeed(p);
-                            }
-
+                            if(nonce != null && callbacks.containsKey(nonce))
+                                callbacks.remove(nonce).succeed(p);
                             break;
 
                         case ERROR:
-
-                            if(nonce != null
-                                    && callbacks.containsKey(nonce))
+                            if(nonce != null && callbacks.containsKey(nonce))
                             {
-                                callbacks.remove(nonce)
-                                        .fail(
-                                                json.getJSONObject("data")
-                                                        .optString(
-                                                                "message",
-                                                                null
-                                                        )
-                                        );
+                                callbacks.remove(nonce).fail(
+                                        json.optJSONObject("data") != null
+                                                ? json.getJSONObject("data").optString("message", null)
+                                                : "Unknown error"
+                                );
                             }
-
                             break;
 
                         case ACTIVITY_JOIN:
-                            LOGGER.debug(
-                                    "Received ACTIVITY_JOIN"
-                            );
+                            LOGGER.debug("Join event");
                             break;
 
                         case ACTIVITY_SPECTATE:
-                            LOGGER.debug(
-                                    "Received ACTIVITY_SPECTATE"
-                            );
+                            LOGGER.debug("Spectate event");
                             break;
 
                         case ACTIVITY_JOIN_REQUEST:
-                            LOGGER.debug(
-                                    "Received ACTIVITY_JOIN_REQUEST"
-                            );
+                            LOGGER.debug("Join request event");
                             break;
 
                         case UNKNOWN:
-                            LOGGER.debug(
-                                    "Unknown event type: {}",
-                                    json.optString("evt")
-                            );
+                            LOGGER.debug("Unknown event");
                             break;
                     }
 
                     if(listener != null
                             && json.has("cmd")
-                            && json.getString("cmd")
-                            .equals("DISPATCH"))
+                            && "DISPATCH".equals(json.optString("cmd")))
                     {
                         try
                         {
-                            JSONObject data =
-                                    json.getJSONObject("data");
+                            JSONObject data = json.optJSONObject("data");
 
-                            switch(Event.of(
-                                    json.getString("evt")
-                            )) {
+                            if(data == null)
+                                continue;
+
+                            switch(Event.of(json.optString("evt")))
+                            {
                                 case ACTIVITY_JOIN:
-
-                                    listener.onActivityJoin(
-                                            this,
-                                            data.getString("secret")
-                                    );
-
+                                    listener.onActivityJoin(this, data.getString("secret"));
                                     break;
 
                                 case ACTIVITY_SPECTATE:
-
-                                    listener.onActivitySpectate(
-                                            this,
-                                            data.getString("secret")
-                                    );
-
+                                    listener.onActivitySpectate(this, data.getString("secret"));
                                     break;
 
                                 case ACTIVITY_JOIN_REQUEST:
 
-                                    JSONObject u =
-                                            data.getJSONObject("user");
+                                    JSONObject u = data.getJSONObject("user");
 
                                     User user = new User(
                                             u.getString("username"),
                                             u.getString("discriminator"),
-                                            Long.parseLong(
-                                                    u.getString("id")
-                                            ),
-                                            u.optString(
-                                                    "avatar",
-                                                    null
-                                            )
+                                            Long.parseLong(u.getString("id")),
+                                            u.optString("avatar", null)
                                     );
 
                                     listener.onActivityJoinRequest(
                                             this,
-                                            data.optString(
-                                                    "secret",
-                                                    null
-                                            ),
+                                            data.optString("secret", null),
                                             user
                                     );
 
@@ -434,82 +308,51 @@ public final class IPCClient implements Closeable
                         }
                         catch(Exception e)
                         {
-                            LOGGER.error(
-                                    "Exception while handling event",
-                                    e
-                            );
+                            LOGGER.error("Event error", e);
                         }
                     }
-                }
-
-                LOGGER.info("IPC read thread stopped");
-
-                if(pipe != null)
-                {
-                    pipe.setStatus(
-                            PipeStatus.DISCONNECTED
-                    );
                 }
             }
             catch(IOException | JSONException ex)
             {
-                if(!closed.get())
-                {
-                    LOGGER.error(
-                            "IPC read thread crashed",
-                            ex
-                    );
+                LOGGER.error("Reading thread crashed", ex);
 
-                    if(listener != null)
-                    {
-                        listener.onDisconnect(
-                                this,
-                                ex
-                        );
-                    }
-                }
+                if(listener != null)
+                    listener.onDisconnect(this, ex);
+            }
+            catch(Exception ex)
+            {
+                LOGGER.error("Unexpected IPC error", ex);
             }
             finally
             {
-                if(pipe != null)
+                try
                 {
-                    pipe.setStatus(
-                            PipeStatus.DISCONNECTED
-                    );
-                }
-
-                if(listener != null && !closed.get())
-                {
-                    try
+                    if (pipe != null)
                     {
-                        listener.onClose(
-                                this,
-                                null
-                        );
+                        pipe.setStatus(PipeStatus.DISCONNECTED);
+                        pipe.close();
                     }
-                    catch(Exception ignored) {}
                 }
+                catch(Exception ignored) {}
+
+                LOGGER.info("IPC reading thread stopped");
             }
+        });
 
-        }, "Discord-IPC-Read-Thread");
+        readThread.setName("Discord-IPC-ReadThread");
 
-        // FIX: daemon thread
+        // КРИТИЧНО
         readThread.setDaemon(true);
 
-        LOGGER.debug("Starting IPC read thread");
+        LOGGER.debug("Starting IPCClient reading thread");
 
         readThread.start();
     }
 
     private static int getPID()
     {
-        String pr =
-                ManagementFactory
-                        .getRuntimeMXBean()
-                        .getName();
-
-        return Integer.parseInt(
-                pr.substring(0, pr.indexOf('@'))
-        );
+        String pr = ManagementFactory.getRuntimeMXBean().getName();
+        return Integer.parseInt(pr.substring(0, pr.indexOf('@')));
     }
 }
