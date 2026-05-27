@@ -1,18 +1,3 @@
-/*
- * Copyright 2017 John Grosh (john.a.grosh@gmail.com).
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.jagrosh.discordipc.entities;
 
 import java.time.OffsetDateTime;
@@ -20,11 +5,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * An encapsulation of all data needed to properly construct a JSON RichPresence payload.
- *
- * <p>These can be built using {@link RichPresence.Builder}.
- *
- * @author John Grosh (john.a.grosh@gmail.com)
+ * Rich Presence object with buttons support.
  */
 public class RichPresence
 {
@@ -32,301 +13,297 @@ public class RichPresence
     private final String details;
     private final OffsetDateTime startTimestamp;
     private final OffsetDateTime endTimestamp;
+
     private final String largeImageKey;
     private final String largeImageText;
+
     private final String smallImageKey;
     private final String smallImageText;
+
     private final String partyId;
     private final int partySize;
     private final int partyMax;
+
     private final String matchSecret;
     private final String joinSecret;
     private final String spectateSecret;
+
     private final boolean instance;
-    
-    public RichPresence(String state, String details, OffsetDateTime startTimestamp, OffsetDateTime endTimestamp, 
-            String largeImageKey, String largeImageText, String smallImageKey, String smallImageText, 
-            String partyId, int partySize, int partyMax, String matchSecret, String joinSecret, 
-            String spectateSecret, boolean instance)
+
+    // buttons
+    private final JSONArray buttons;
+
+    public RichPresence(
+            String state,
+            String details,
+            OffsetDateTime startTimestamp,
+            OffsetDateTime endTimestamp,
+            String largeImageKey,
+            String largeImageText,
+            String smallImageKey,
+            String smallImageText,
+            String partyId,
+            int partySize,
+            int partyMax,
+            String matchSecret,
+            String joinSecret,
+            String spectateSecret,
+            boolean instance,
+            JSONArray buttons)
     {
         this.state = state;
         this.details = details;
         this.startTimestamp = startTimestamp;
         this.endTimestamp = endTimestamp;
+
         this.largeImageKey = largeImageKey;
         this.largeImageText = largeImageText;
+
         this.smallImageKey = smallImageKey;
         this.smallImageText = smallImageText;
+
         this.partyId = partyId;
         this.partySize = partySize;
         this.partyMax = partyMax;
+
         this.matchSecret = matchSecret;
         this.joinSecret = joinSecret;
         this.spectateSecret = spectateSecret;
+
         this.instance = instance;
+
+        this.buttons = buttons;
     }
 
     /**
-     * Constructs a {@link JSONObject} representing a payload to send to discord
-     * to update a user's Rich Presence.
-     *
-     * <p>This is purely internal, and should not ever need to be called outside of
-     * the library.
-     *
-     * @return A JSONObject payload for updating a user's Rich Presence.
+     * Converts Rich Presence into JSON payload.
      */
     public JSONObject toJson()
     {
-        return new JSONObject()
-                .put("state", state)
-                .put("details", details)
-                .put("timestamps", new JSONObject()
-                        .put("start", startTimestamp==null ? null : startTimestamp.toEpochSecond())
-                        .put("end", endTimestamp==null ? null : endTimestamp.toEpochSecond()))
-                .put("assets", new JSONObject()
-                        .put("large_image", largeImageKey)
-                        .put("large_text", largeImageText)
-                        .put("small_image", smallImageKey)
-                        .put("small_text", smallImageText))
-                .put("party", partyId==null ? null : new JSONObject()
-                        .put("id", partyId)
-                        .put("size", new JSONArray().put(partySize).put(partyMax)))
-                .put("secrets", new JSONObject()
-                        .put("join", joinSecret)
-                        .put("spectate", spectateSecret)
-                        .put("match", matchSecret))
-                .put("instance", instance);
+        JSONObject json = new JSONObject();
+
+        if(state != null)
+            json.put("state", state);
+
+        if(details != null)
+            json.put("details", details);
+
+        // timestamps
+        JSONObject timestamps = new JSONObject();
+
+        if(startTimestamp != null)
+            timestamps.put("start", startTimestamp.toEpochSecond());
+
+        if(endTimestamp != null)
+            timestamps.put("end", endTimestamp.toEpochSecond());
+
+        if(timestamps.length() > 0)
+            json.put("timestamps", timestamps);
+
+        // assets
+        JSONObject assets = new JSONObject();
+
+        if(largeImageKey != null)
+            assets.put("large_image", largeImageKey);
+
+        if(largeImageText != null)
+            assets.put("large_text", largeImageText);
+
+        if(smallImageKey != null)
+            assets.put("small_image", smallImageKey);
+
+        if(smallImageText != null)
+            assets.put("small_text", smallImageText);
+
+        if(assets.length() > 0)
+            json.put("assets", assets);
+
+        // party
+        if(partyId != null)
+        {
+            json.put("party",
+                    new JSONObject()
+                            .put("id", partyId)
+                            .put("size", new JSONArray()
+                                    .put(partySize)
+                                    .put(partyMax)));
+        }
+
+        // secrets
+        JSONObject secrets = new JSONObject();
+
+        if(joinSecret != null)
+            secrets.put("join", joinSecret);
+
+        if(spectateSecret != null)
+            secrets.put("spectate", spectateSecret);
+
+        if(matchSecret != null)
+            secrets.put("match", matchSecret);
+
+        if(secrets.length() > 0)
+            json.put("secrets", secrets);
+
+        json.put("instance", instance);
+
+        // buttons
+        if(buttons != null && buttons.length() > 0)
+        {
+            json.put("buttons", buttons);
+        }
+
+        return json;
     }
 
-    /**
-     * A chain builder for a {@link RichPresence} object.
-     *
-     * <p>An accurate description of each field and it's functions can be found
-     * <a href="https://discordapp.com/developers/docs/rich-presence/how-to#updating-presence-update-presence-payload-fields">here</a>
-     */
     public static class Builder
     {
         private String state;
         private String details;
+
         private OffsetDateTime startTimestamp;
         private OffsetDateTime endTimestamp;
+
         private String largeImageKey;
         private String largeImageText;
+
         private String smallImageKey;
         private String smallImageText;
+
         private String partyId;
         private int partySize;
         private int partyMax;
+
         private String matchSecret;
         private String joinSecret;
         private String spectateSecret;
+
         private boolean instance;
 
-        /**
-         * Builds the {@link RichPresence} from the current state of this builder.
-         *
-         * @return The RichPresence built.
-         */
-        public RichPresence build()
+        private JSONArray buttons;
+
+        public Builder()
         {
-            return new RichPresence(state, details, startTimestamp, endTimestamp, 
-                    largeImageKey, largeImageText, smallImageKey, smallImageText, 
-                    partyId, partySize, partyMax, matchSecret, joinSecret, 
-                    spectateSecret, instance);
+            buttons = new JSONArray();
         }
 
-        /**
-         * Sets the state of the user's current party.
-         *
-         * @param state The state of the user's current party.
-         *
-         * @return This Builder.
-         */
+        public RichPresence build()
+        {
+            return new RichPresence(
+                    state,
+                    details,
+                    startTimestamp,
+                    endTimestamp,
+                    largeImageKey,
+                    largeImageText,
+                    smallImageKey,
+                    smallImageText,
+                    partyId,
+                    partySize,
+                    partyMax,
+                    matchSecret,
+                    joinSecret,
+                    spectateSecret,
+                    instance,
+                    buttons
+            );
+        }
+
         public Builder setState(String state)
         {
             this.state = state;
             return this;
         }
 
-        /**
-         * Sets details of what the player is currently doing.
-         *
-         * @param details The details of what the player is currently doing.
-         *
-         * @return This Builder.
-         */
         public Builder setDetails(String details)
         {
             this.details = details;
             return this;
         }
 
-        /**
-         * Sets the time that the player started a match or activity.
-         *
-         * @param startTimestamp The time the player started a match or activity.
-         *
-         * @return This Builder.
-         */
         public Builder setStartTimestamp(OffsetDateTime startTimestamp)
         {
             this.startTimestamp = startTimestamp;
             return this;
         }
 
-        /**
-         * Sets the time that the player's current activity will end.
-         *
-         * @param endTimestamp The time the player's activity will end.
-         *
-         * @return This Builder.
-         */
         public Builder setEndTimestamp(OffsetDateTime endTimestamp)
         {
             this.endTimestamp = endTimestamp;
             return this;
         }
 
-        /**
-         * Sets the key of the uploaded image for the large profile artwork, as well as
-         * the text tooltip shown when a cursor hovers over it.
-         *
-         * <p>These can be configured in the <a href="https://discordapp.com/developers/applications/me">applications</a>
-         * page on the discord website.
-         *
-         * @param largeImageKey A key to an image to display.
-         * @param largeImageText Text displayed when a cursor hovers over the large image.
-         *
-         * @return This Builder.
-         */
-        public Builder setLargeImage(String largeImageKey, String largeImageText)
+        public Builder setLargeImage(String key, String text)
         {
-            this.largeImageKey = largeImageKey;
-            this.largeImageText = largeImageText;
+            this.largeImageKey = key;
+            this.largeImageText = text;
             return this;
         }
 
-        /**
-         * Sets the key of the uploaded image for the large profile artwork.
-         *
-         * <p>These can be configured in the <a href="https://discordapp.com/developers/applications/me">applications</a>
-         * page on the discord website.
-         *
-         * @param largeImageKey A key to an image to display.
-         *
-         * @return This Builder.
-         */
-        public Builder setLargeImage(String largeImageKey)
+        public Builder setLargeImage(String key)
         {
-            return setLargeImage(largeImageKey, null);
+            return setLargeImage(key, null);
         }
 
-        /**
-         * Sets the key of the uploaded image for the small profile artwork, as well as
-         * the text tooltip shown when a cursor hovers over it.
-         *
-         * <p>These can be configured in the <a href="https://discordapp.com/developers/applications/me">applications</a>
-         * page on the discord website.
-         *
-         * @param smallImageKey A key to an image to display.
-         * @param smallImageText Text displayed when a cursor hovers over the small image.
-         *
-         * @return This Builder.
-         */
-        public Builder setSmallImage(String smallImageKey, String smallImageText)
+        public Builder setSmallImage(String key, String text)
         {
-            this.smallImageKey = smallImageKey;
-            this.smallImageText = smallImageText;
+            this.smallImageKey = key;
+            this.smallImageText = text;
             return this;
         }
 
-        /**
-         * Sets the key of the uploaded image for the small profile artwork.
-         *
-         * <p>These can be configured in the <a href="https://discordapp.com/developers/applications/me">applications</a>
-         * page on the discord website.
-         *
-         * @param smallImageKey A key to an image to display.
-         *
-         * @return This Builder.
-         */
-        public Builder setSmallImage(String smallImageKey)
+        public Builder setSmallImage(String key)
         {
-            return setSmallImage(smallImageKey, null);
+            return setSmallImage(key, null);
         }
 
-        /**
-         * Sets party configurations for a team, lobby, or other form of group.
-         *
-         * <p>The {@code partyId} is ID of the player's party.
-         * <br>The {@code partySize} is the current size of the player's party.
-         * <br>The {@code partyMax} is the maximum number of player's allowed in the party.
-         *
-         * @param partyId The ID of the player's party.
-         * @param partySize The current size of the player's party.
-         * @param partyMax The maximum number of player's allowed in the party.
-         *
-         * @return This Builder.
-         */
-        public Builder setParty(String partyId, int partySize, int partyMax)
+        public Builder setParty(String id, int size, int max)
         {
-            this.partyId = partyId;
-            this.partySize = partySize;
-            this.partyMax = partyMax;
+            this.partyId = id;
+            this.partySize = size;
+            this.partyMax = max;
             return this;
         }
 
-        /**
-         * Sets the unique hashed string for Spectate and Join.
-         *
-         * @param matchSecret The unique hashed string for Spectate and Join.
-         *
-         * @return This Builder.
-         */
-        public Builder setMatchSecret(String matchSecret)
+        public Builder setMatchSecret(String secret)
         {
-            this.matchSecret = matchSecret;
+            this.matchSecret = secret;
             return this;
         }
 
-        /**
-         * Sets the unique hashed string for chat invitations and Ask to Join.
-         *
-         * @param joinSecret The unique hashed string for chat invitations and Ask to Join.
-         *
-         * @return This Builder.
-         */
-        public Builder setJoinSecret(String joinSecret)
+        public Builder setJoinSecret(String secret)
         {
-            this.joinSecret = joinSecret;
+            this.joinSecret = secret;
             return this;
         }
 
-        /**
-         * Sets the unique hashed string for Spectate button.
-         *
-         * @param spectateSecret The unique hashed string for Spectate button.
-         *
-         * @return This Builder.
-         */
-        public Builder setSpectateSecret(String spectateSecret)
+        public Builder setSpectateSecret(String secret)
         {
-            this.spectateSecret = spectateSecret;
+            this.spectateSecret = secret;
             return this;
         }
 
-        /**
-         * Marks the {@link #setMatchSecret(String) matchSecret} as a game
-         * session with a specific beginning and end.
-         *
-         * @param instance Whether or not the {@code matchSecret} is a game
-         *                 with a specific beginning and end.
-         *
-         * @return This Builder.
-         */
         public Builder setInstance(boolean instance)
         {
             this.instance = instance;
+            return this;
+        }
+
+        /**
+         * Add button to Rich Presence.
+         * Discord supports maximum 2 buttons.
+         */
+        public Builder addButton(String label, String url)
+        {
+            if(buttons.length() >= 2)
+                return this;
+
+            JSONObject button = new JSONObject();
+
+            button.put("label", label);
+            button.put("url", url);
+
+            buttons.put(button);
+
             return this;
         }
     }
